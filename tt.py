@@ -405,6 +405,10 @@ def bq_to_csv(client: bigquery.Client, project_id: str, csv_path: str,
 		
 		query_job = sqlexecute_bq(client, query)
 		df = query_job.to_dataframe()
+	  	if df[['src_db', 'src_tbl']].isnull().any().any():
+		    error_msg = "Null values found in `src_db` or `src_tbl`. Execution stopped."
+		    log_msg(error_msg)
+		    return {"status": "error", "message": error_msg}
 		sep = "," if sep is None else sep
 
 		return df.to_csv(file_path, index=False, sep=sep)
