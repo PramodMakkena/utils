@@ -81,7 +81,6 @@ def readCSV(spark):
 
         if invalid_rows.count() > 0:
             log_msg("Null values found for src_db and sec_tbl. Skipping...")
-            invalid_rows.show(truncate=False)
             df = df.subtract(invalid_rows)
 
         if df.count() == 0:
