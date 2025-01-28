@@ -74,6 +74,20 @@ def readCSV(spark):
         # Read CSV into DataFrame
         df = readfrombucket(spark, dc_csv_location_path, "csv")
 
+        invalid_rows = df.filter(
+            (df.src_db.isNull() | (df.src_db == '') | (df.src_db.lower() == "none")) |
+            (df.src_tbl.isNull() | (df.src_tbl == '') | (df.src_tbl.lower() == "none"))
+        )
+
+        if invalid_rows.count() > 0:
+            log_msg("Null values found for src_db and sec_tbl. Skipping...")
+            invalid_rows.show(truncate=False)
+            df = df.subtract(invalid_rows)
+
+        if df.count() == 0:
+            log_msg("All rows are invalid. DAG stopped.")
+            return
+            
         # Generate a UTC timestamp for suffix naming
         dttm = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         print("Current timestamp for backups: ", dttm)
@@ -120,12 +134,6 @@ def readCSV(spark):
                 print(f"csv_path= {csv_path}")
                 print(f"create_replace= {crt_rep}")
 
-                # 1. Validate if src_db, src_ds, src_tbl are given
-                if (not src_db or src_db.lower() == "none" or
-                    not src_ds or src_ds.lower() == "none" or
-                    not src_tbl or src_tbl.lower() == "none"):
-                    log_msg(f"ERROR: Missing or invalid src_db/src_ds/src_tbl for dc_id: {dc_id}. Skipping.")
-                    continue
 
                 # 2. Check if the source table actually exists in BigQuery
                 try:
