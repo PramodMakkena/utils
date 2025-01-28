@@ -131,20 +131,7 @@ def readCSV(spark):
                 print(f"key_cols= {key_cols}")
                 print(f"key_vals= {key_vals}")
                 print(f"csv_path= {csv_path}")
-                print(f"create_replace= {crt_rep}")
-
-
-                # 2. Check if the source table actually exists in BigQuery
-                try:
-                    # Re-use gfcc_dam_utility.check_table_exists or define your own
-                    check_table_exists(bq_client, src_db, src_ds, src_tbl)
-                    # If the table does not exist, it will raise NotFound or log accordingly
-                except Exception as e:
-                    # If the above function raises an Exception (e.g. NotFound),
-                    # we skip only this record but keep going
-                    log_msg(f"ERROR: Source table {src_db}.{src_ds}.{src_tbl} does not exist for dc_id: {dc_id}. "
-                            f"Skipping. Details: {e}")
-                    continue
+                print(f"create_replace= {
 
                 # If we reach here, we can proceed
                 try:
@@ -226,84 +213,6 @@ def checkTableExist(tgt_db, tgt_ds, tgt_tbl):
         err_str = "Exception in checkTableExist: " + str(e)
         print(err_str)
         return False
-
-
-def checkTableExist(bq_client, src_db, src_ds, src_tbl, tgt_db, tgt_ds, tgt_tbl):
-    """
-    Checks existence of a Source and Target table in two different ways.
-
-    1) Source table: uses the google.cloud.bigquery.Client
-    2) Target table: uses the googleapiclient discovery approach
-
-    :param bq_client: google.cloud.bigquery.Client instance (for source checks)
-    :param src_db:    Source Project ID
-    :param src_ds:    Source Dataset ID
-    :param src_tbl:   Source Table name
-    :param tgt_db:    Target Project ID
-    :param tgt_ds:    Target Dataset ID
-    :param tgt_tbl:   Target Table name
-
-    :raises Exception: If either table is not found
-    """
-
-    # -----------------------------
-    # 1) Check Source Table via google.cloud.bigquery
-    # -----------------------------
-    src_table_id = f"{src_db}.{src_ds}.{src_tbl}"
-    log_msg(f"Checking Source Table via BigQuery Client: {src_table_id}")
-
-    try:
-        bq_client.get_table(src_table_id)  # Raises NotFound if the source table doesn't exist
-        log_msg(f"Source table '{src_table_id}' found.")
-    except NotFound:
-        err_str = f"ERROR: Source table '{src_table_id}' not found!"
-        throw_exception(err_str)
-
-    # -----------------------------
-    # 2) Check Target Table via googleapiclient discovery
-    # -----------------------------
-    tgt_table_id = f"{tgt_db}.{tgt_ds}.{tgt_tbl}"
-    log_msg(f"Checking Target Table via googleapiclient discovery: {tgt_table_id}")
-
-    # Build a BigQuery service object (version 'v2')
-    service = discovery.build('bigquery', 'v2')
-    try:
-        service.tables().get(
-            projectId=tgt_db,
-            datasetId=tgt_ds,
-            tableId=tgt_tbl
-        ).execute()
-        log_msg(f"Target table '{tgt_table_id}' found.")
-    except HttpError as http_err:
-        err_str = f"ERROR: Target table '{tgt_table_id}' not found or inaccessible! Details: {http_err}"
-        throw_exception(err_str)
-
-
-def createDDL(ddl_str, tgt_db, tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list):
-    try:
-        print("Create DDL...")
-        ddl_str = (
-            ddl_str
-            + tgt_db
-            + "."
-            + tgt_ds
-            + "."
-            + tgt_tbl
-            + " as (select "
-            + col_list
-            + " from "
-            + src_db
-            + "."
-            + src_ds
-            + "."
-            + src_tbl
-            + " limit 0)"
-        )
-        print(ddl_str)
-        sqlexecute_bq(bq_client, ddl_str)
-    except Exception as e:
-        err_str = "Exception in createDDL: " + str(e)
-        throw_exception(err_str)
 
 
 def getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals):
