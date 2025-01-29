@@ -73,16 +73,6 @@ def readCSV(spark):
 
         # Read CSV into DataFrame
         df = readfrombucket(spark, dc_csv_location_path, "csv")
-
-        invalid_rows = df.filter(
-            (df.src_db.isNull() | (df.src_db == '') | (df.src_db.lower() == "none")) |
-            (df.src_tbl.isNull() | (df.src_tbl == '') | (df.src_tbl.lower() == "none"))
-        )
-
-        if invalid_rows.count() > 0:
-            log_msg("Null values found for src_db and sec_tbl. Skipping...")
-            df = df.subtract(invalid_rows)
-
         if df.count() == 0:
             log_msg("All rows are invalid. DAG stopped.")
             return
@@ -376,22 +366,26 @@ def create_tbl(
             truncate_load(bq_client, tgt_db, tgt_ds, tgt_tbl, temp_tbl)
 
         # Just export from BQ to CSV
-        elif crt_rep.upper() == "BQ_TO_CSV":
-        # 1) Check if src_db, src_ds, or src_tbl is missing or 'none' or empty
-        if (not src_db or src_db.lower() == "none" or len(src_db.strip()) == 0 or
-            not src_ds or src_ds.lower() == "none" or len(src_ds.strip()) == 0 or
-            not src_tbl or src_tbl.lower() == "none" or len(src_tbl.strip()) == 0):
-            
-            log_msg("ERROR: 'src_db', 'src_ds', or 'src_tbl' not provided or is 'none'. "
-                    "Failing process for this row, moving to next dc_id.")
-            return  # This exits the function, skipping BQ-to-CSV for this row
-
-            where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
-            limit_str = getLimit(limit_val)
-            sqlstr = (
-                "select " + col_list + " from " + src_db + "." + src_ds + "." + src_tbl + where_str + limit_str
-            )
-            bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+        elif crt_rep == "BQ_TO_CSV":
+            if (len(src_db) > 0 and len(src_ds) > 0 and len(src_tbl) > 0
+                and len(csv_path) > 0 and len(file_name) > 0):
+                where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds,
+                                         src_tbl, col_list, key_cols, key_vals)
+                limit_str = getLimit(limit_val)
+                sqlstr = ("select " + col_list + " from "
+                          + src_db + "." + src_ds + "." + src_tbl
+                          + where_str + limit_str)
+                bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+            elif (
+                (not src_db or src_db.lower() == "none" or len(src_db.strip()) == 0)
+                or (not src_ds or src_ds.lower() == "none"
+                    or len(src_ds.strip()) == 0)
+                or (not src_tbl or src_tbl.lower() == "none"
+                    or len(src_tbl.strip()) == 0)
+            ):
+                log_msg(f"ERROR: Source table {src_db}.{src_ds}.{src_tbl} does not exist.")
+            else:
+                return
 
         # Load CSV to BQ
         elif crt_rep.upper() == "CSV_TO_BQ":
