@@ -131,7 +131,6 @@ def readCSV(spark):
                 print(f"key_cols= {key_cols}")
                 print(f"key_vals= {key_vals}")
                 print(f"csv_path= {csv_path}")
-                print(f"create_replace= {
 
                 # If we reach here, we can proceed
                 try:
@@ -378,6 +377,15 @@ def create_tbl(
 
         # Just export from BQ to CSV
         elif crt_rep.upper() == "BQ_TO_CSV":
+        # 1) Check if src_db, src_ds, or src_tbl is missing or 'none' or empty
+        if (not src_db or src_db.lower() == "none" or len(src_db.strip()) == 0 or
+            not src_ds or src_ds.lower() == "none" or len(src_ds.strip()) == 0 or
+            not src_tbl or src_tbl.lower() == "none" or len(src_tbl.strip()) == 0):
+            
+            log_msg("ERROR: 'src_db', 'src_ds', or 'src_tbl' not provided or is 'none'. "
+                    "Failing process for this row, moving to next dc_id.")
+            return  # This exits the function, skipping BQ-to-CSV for this row
+
             where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
             limit_str = getLimit(limit_val)
             sqlstr = (
