@@ -365,27 +365,87 @@ def create_tbl(
             writetablebq(df, project_id, tgt_ds, temp_tbl, "overwrite")
             truncate_load(bq_client, tgt_db, tgt_ds, tgt_tbl, temp_tbl)
 
-        # Just export from BQ to CSV
-        elif crt_rep == "BQ_TO_CSV":
-            if (len(src_db) > 0 and len(src_ds) > 0 and len(src_tbl) > 0
-                and len(csv_path) > 0 and len(file_name) > 0):
-                where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds,
-                                         src_tbl, col_list, key_cols, key_vals)
-                limit_str = getLimit(limit_val)
-                sqlstr = ("select " + col_list + " from "
-                          + src_db + "." + src_ds + "." + src_tbl
-                          + where_str + limit_str)
-                bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
-            elif (
-                (not src_db or src_db.lower() == "none" or len(src_db.strip()) == 0)
-                or (not src_ds or src_ds.lower() == "none"
-                    or len(src_ds.strip()) == 0)
-                or (not src_tbl or src_tbl.lower() == "none"
-                    or len(src_tbl.strip()) == 0)
-            ):
-                log_msg(f"ERROR: Source table {src_db}.{src_ds}.{src_tbl} does not exist.")
-            else:
+
+    # Case 1:
+    elif crt_rep == "BQ_TO_CSV":
+        if (src_db != "None" and src_ds != "None" and src_tbl != "None" and csv_path != "None":
+            if key_cols != "None":
+                if key_vals != "None":
+                    where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
+                    limit_str = getLimit(limit_val)
+                    sqlstr = "select " + col_list + " from " + src_db + "." + src_ds + "." + src_tbl + where_str + limit_str
+                    bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+                else:
+                    log_msg(f"ERROR: key_cols is present but key_vals is missing in input file")
+            elif key_cols == "None":
+                if key_vals == "None":
+                    where_str = ""
+                    limit_str = getLimit(limit_val)
+                    sqlstr = "select " + col_list + " from " + src_db + "." + src_ds + "." + src_tbl
+                    bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+                else:
+                    log_msg(f"ERROR: key_cols is missing but key_vals is present in input file")
+        else:
+            log_msg(f"ERROR: Values for src_db/src_ds/src_tbl/csv_path are not given. Please update the CSV with appropriate values for this dc_id")
+
+    # Case 2:
+elif crt_rep == "BQ_TO_CSV":
+     if src_db != "None" and src_ds != "None" and src_tbl != "None" and csv_path != "None":
+         chk_flag = 0
+         where_str = ""
+         if key_vals != "None":
+             if key_cols != "None":
+                 where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
+             else:
+                 chk_flag = 1
+                 log_msg(f"ERROR: key_vals is present but key_cols is missing in input file")
+         if chk_flag != 1:
+             limit_str = getLimit(limit_val, True)
+             sqlstr = "select " + col_list + " from " + src_db + "." + src_ds + "." + src_tbl + where_str + limit_str
+             bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+         else:
+             log_msg(f"ERROR: Either source table detail columns or target file details is/are missing in input file")
+ elif crt_rep == "CSV_TO_BQ":
+     file_path = f"gs://{project_id}/{csv_path}{file_name}"
+
+     #case 3: Written by you
+
+     elif crt_rep == "BQ_TO_CSV":
+            if None in [src_db, src_ds, src_tbl, csv_path, file_name] or \
+                    any(x.strip() == "" for x in [src_db, src_ds, src_tbl, csv_path, file_name]):
+                log_msg(
+                    f"ERROR: Source table {src_db or 'None'}.{src_ds or 'None'}.{src_tbl or 'None'}  or {file_name or 'None'} does not exist.")
                 return
+            log_msg(f"DEBUG: crt_rep={crt_rep}, src_db={src_db}, src_ds={src_ds}, src_tbl={src_tbl}, "
+                    f"csv_path={csv_path}, file_name={file_name}, col_list={col_list}, "
+                    f"key_cols={key_cols}, key_vals={key_vals}, limit_val={limit_val}")
+
+            #1
+            if key_vals:
+                if not key_cols:
+                    log_msg(
+                        f"ERROR: key_cols {key_cols} does not exist.")
+                    return
+
+            default_limit = 1000
+            max_limit = 10000
+            if not col_list: #2
+                limit_val = int(default_limit)
+            else: #3
+                if not key_vals and key_cols:
+                    if limit_val != 'None':
+                        limit_val = int(limit_val)
+                        if limit_val > 0:
+                            limit_val = min(limit_val, max_limit)
+                    else:
+                        limit_val = int(default_limit)
+
+            where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
+            limit_str = getLimit(limit_val)
+            sqlstr = ("select " + col_list + " from "
+                      + src_db + "." + src_ds + "." + src_tbl
+                      + where_str + limit_str)
+            bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
 
         # Load CSV to BQ
         elif crt_rep.upper() == "CSV_TO_BQ":
