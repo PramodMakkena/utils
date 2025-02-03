@@ -76,7 +76,7 @@ def readCSV(spark):
         if df.count() == 0:
             log_msg("All rows are invalid. DAG stopped.")
             return
-            
+
         # Generate a UTC timestamp for suffix naming
         dttm = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         print("Current timestamp for backups: ", dttm)
@@ -158,19 +158,19 @@ def createBkpTbl(tgt_db, tgt_ds, tgt_tbl, dttm):
         print("inside backup table function")
         # Example: creating a backup in the `temp` dataset (adjust as needed)
         bkp_tbl = (
-            "create or replace table "
-            + tgt_db
-            + ".temp."
-            + tgt_tbl
-            + "_"
-            + dttm
-            + " as (select * from "
-            + tgt_db
-            + "."
-            + tgt_ds
-            + "."
-            + tgt_tbl
-            + ")"
+                "create or replace table "
+                + tgt_db
+                + ".temp."
+                + tgt_tbl
+                + "_"
+                + dttm
+                + " as (select * from "
+                + tgt_db
+                + "."
+                + tgt_ds
+                + "."
+                + tgt_tbl
+                + ")"
         )
         print(bkp_tbl)
         sqlexecute_bq(bq_client, bkp_tbl)
@@ -216,16 +216,16 @@ def getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, k
             where_cond = ""
             for col in kcols:
                 sqlstr = (
-                    "select data_type from `"
-                    + src_db
-                    + "."
-                    + src_ds
-                    + ".INFORMATION_SCHEMA.COLUMNS` "
-                    + "where table_name='"
-                    + src_tbl
-                    + "' and lower(column_name)= lower('"
-                    + col
-                    + "')"
+                        "select data_type from `"
+                        + src_db
+                        + "."
+                        + src_ds
+                        + ".INFORMATION_SCHEMA.COLUMNS` "
+                        + "where table_name='"
+                        + src_tbl
+                        + "' and lower(column_name)= lower('"
+                        + col
+                        + "')"
                 )
                 res = sqlexecute_bq(bq_client, sqlstr)
                 res_op = res.result()
@@ -273,22 +273,22 @@ def insertTbl(tgt_db, tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, where_
     try:
         print("inside insertTbl")
         ins_str = (
-            "insert into "
-            + tgt_db
-            + "."
-            + tgt_ds
-            + "."
-            + tgt_tbl
-            + " select "
-            + col_list
-            + " from "
-            + src_db
-            + "."
-            + src_ds
-            + "."
-            + src_tbl
-            + where_str
-            + limit_str
+                "insert into "
+                + tgt_db
+                + "."
+                + tgt_ds
+                + "."
+                + tgt_tbl
+                + " select "
+                + col_list
+                + " from "
+                + src_db
+                + "."
+                + src_ds
+                + "."
+                + src_tbl
+                + where_str
+                + limit_str
         )
         print(ins_str)
         ins_res = sqlexecute_bq(bq_client, ins_str)
@@ -309,22 +309,22 @@ def deleteTbl(tgt_db, tgt_ds, tgt_tbl, where_str):
 
 
 def create_tbl(
-    spark,
-    crt_rep,
-    tgt_db,
-    tgt_ds,
-    tgt_tbl,
-    src_db,
-    src_ds,
-    src_tbl,
-    col_list,
-    key_cols,
-    key_vals,
-    csv_path,
-    dttm,
-    limit_val,
-    file_name,
-    schema_json
+        spark,
+        crt_rep,
+        tgt_db,
+        tgt_ds,
+        tgt_tbl,
+        src_db,
+        src_ds,
+        src_tbl,
+        col_list,
+        key_cols,
+        key_vals,
+        csv_path,
+        dttm,
+        limit_val,
+        file_name,
+        schema_json
 ):
     log_msg("------------------ Creating tables------------------")
     try:
@@ -366,72 +366,35 @@ def create_tbl(
             truncate_load(bq_client, tgt_db, tgt_ds, tgt_tbl, temp_tbl)
 
 
-    # Case 1:
-    elif crt_rep == "BQ_TO_CSV":
-        if (src_db != "None" and src_ds != "None" and src_tbl != "None" and csv_path != "None":
-            if key_cols != "None":
-                if key_vals != "None":
-                    where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
-                    limit_str = getLimit(limit_val)
-                    sqlstr = "select " + col_list + " from " + src_db + "." + src_ds + "." + src_tbl + where_str + limit_str
-                    bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
-                else:
-                    log_msg(f"ERROR: key_cols is present but key_vals is missing in input file")
-            elif key_cols == "None":
-                if key_vals == "None":
-                    where_str = ""
-                    limit_str = getLimit(limit_val)
-                    sqlstr = "select " + col_list + " from " + src_db + "." + src_ds + "." + src_tbl
-                    bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
-                else:
-                    log_msg(f"ERROR: key_cols is missing but key_vals is present in input file")
-        else:
-            log_msg(f"ERROR: Values for src_db/src_ds/src_tbl/csv_path are not given. Please update the CSV with appropriate values for this dc_id")
-
-    # Case 2:
-elif crt_rep == "BQ_TO_CSV":
-     if src_db != "None" and src_ds != "None" and src_tbl != "None" and csv_path != "None":
-         chk_flag = 0
-         where_str = ""
-         if key_vals != "None":
-             if key_cols != "None":
-                 where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
-             else:
-                 chk_flag = 1
-                 log_msg(f"ERROR: key_vals is present but key_cols is missing in input file")
-         if chk_flag != 1:
-             limit_str = getLimit(limit_val, True)
-             sqlstr = "select " + col_list + " from " + src_db + "." + src_ds + "." + src_tbl + where_str + limit_str
-             bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
-         else:
-             log_msg(f"ERROR: Either source table detail columns or target file details is/are missing in input file")
- elif crt_rep == "CSV_TO_BQ":
-     file_path = f"gs://{project_id}/{csv_path}{file_name}"
-
-     #case 3: Written by you
-
-     elif crt_rep == "BQ_TO_CSV":
-            if None in [src_db, src_ds, src_tbl, csv_path, file_name] or \
-                    any(x.strip() == "" for x in [src_db, src_ds, src_tbl, csv_path, file_name]):
+        elif crt_rep == "BQ_TO_CSV":
+            if (src_db != "None" and src_ds != "None" and src_tbl != "None" and csv_path != "None"):
                 log_msg(
                     f"ERROR: Source table {src_db or 'None'}.{src_ds or 'None'}.{src_tbl or 'None'}  or {file_name or 'None'} does not exist.")
                 return
-            log_msg(f"DEBUG: crt_rep={crt_rep}, src_db={src_db}, src_ds={src_ds}, src_tbl={src_tbl}, "
-                    f"csv_path={csv_path}, file_name={file_name}, col_list={col_list}, "
-                    f"key_cols={key_cols}, key_vals={key_vals}, limit_val={limit_val}")
-
-            #1
+        
+            # 1 (if key_cols is not present when key_vals has data)
             if key_vals:
                 if not key_cols:
                     log_msg(
                         f"ERROR: key_cols {key_cols} does not exist.")
                     return
-
+        
+            # 1 (to check both)
+            # if not key_cols:  # when key_cols do not exist (key_vals may or may not be present)
+            #     log_msg(
+            #         f"ERROR: key_cols {key_cols} does not exist.")
+            #     return
+            #
+            # if not key_vals:  # when key_cols exist but key_vals does not
+            #     log_msg(
+            #         f"ERROR: key_vals {key_vals} does not exist.")
+            #     return
+        
             default_limit = 1000
             max_limit = 10000
-            if not col_list: #2
+            if not col_list:  # 2
                 limit_val = int(default_limit)
-            else: #3
+            else:  # 3
                 if not key_vals and key_cols:
                     if limit_val != 'None':
                         limit_val = int(limit_val)
@@ -439,20 +402,20 @@ elif crt_rep == "BQ_TO_CSV":
                             limit_val = min(limit_val, max_limit)
                     else:
                         limit_val = int(default_limit)
-
+        
             where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
             limit_str = getLimit(limit_val)
             sqlstr = ("select " + col_list + " from "
                       + src_db + "." + src_ds + "." + src_tbl
                       + where_str + limit_str)
             bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
-
-        # Load CSV to BQ
+    
+            # Load CSV to BQ
         elif crt_rep.upper() == "CSV_TO_BQ":
             file_path = f"gs://{project_id}/{csv_path}{file_name}"
             df = readfrombucket(spark, file_path, "csv")
             csv_to_bq(df, schema_json, project_id, tgt_ds, tgt_tbl)
-
+    
     except Exception as e:
         err_str = "Exception in create_tbl: " + str(e)
         throw_exception(err_str)
