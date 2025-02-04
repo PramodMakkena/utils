@@ -76,8 +76,7 @@ with DAG(dag_id=dag_config["dag_id"], default_args=default_args, catchup=dag_con
             html_content=f"This DAG run for data copier has finished.<br>Latest DAG Run Details:<br>"
                          f"DAG run date: {run_id} <br>"
                          # Need to add the code here for printing the location of the CSV file which we get from calling the BQ_to_CSV function in utility file
-                         f"File path: {file_path} <br>"
-                         f"GCS location: {file_path}"
+                         
         )
 
         email_notification.execute(context=context)
