@@ -374,28 +374,28 @@ def create_tbl(
 
             # # 1 (if key_cols is not present when key_vals has data)
             # if key_vals:
-            #     if not key_cols:
+            #     if key_cols == "None":
             #         log_msg(
             #             f"ERROR: key_cols {key_cols} does not exist.")
             #         return
 
             # 1 (to check both)
-            if not key_cols:  # when key_cols do not exist (key_vals may or may not be present)
+            if key_cols == "None":  # when key_cols do not exist (key_vals may or may not be present)
                 log_msg(
                     f"ERROR: key_cols {key_cols} does not exist.")
                 return
 
-            if not key_vals:  # when key_cols exist but key_vals does not
+            if key_vals == "None":  # when key_cols exist but key_vals does not
                 log_msg(
                     f"ERROR: key_vals {key_vals} does not exist.")
                 return
 
             default_limit = 1000
             max_limit = 10000
-            if not col_list:  # 2
+            if col_list == "None":  # 2
                 limit_val = int(default_limit)
             else:  # 3
-                if not key_vals and key_cols:
+                if key_vals == "None" and key_cols:
                     if limit_val != 'None':
                         limit_val = int(limit_val)
                         if limit_val > 0:
