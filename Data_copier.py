@@ -366,49 +366,51 @@ def create_tbl(
             truncate_load(bq_client, tgt_db, tgt_ds, tgt_tbl, temp_tbl)
 
 
-        elif crt_rep == "BQ_TO_CSV":
-            if (src_db != "None" and src_ds != "None" and src_tbl != "None" and csv_path != "None"):
-                log_msg(
-                    f"ERROR: Source table {src_db or 'None'}.{src_ds or 'None'}.{src_tbl or 'None'}  or {file_name or 'None'} does not exist.")
+    elif crt_rep == "BQ_TO_CSV":
+        if (src_db == "None" or src_ds == "None" or src_tbl == "None" or csv_path == "None"):
+            log_msg(f"ERROR: Values for src_db/src_ds/src_tbl/csv_path is/are not given. Please update the CSV with appropriate values.")
+            return
+
+        if key_vals:
+            if key_cols == "None":
+                log_msg(f"ERROR: key_cols {key_cols} does not exist.")
                 return
 
-            # # 1 (if key_cols is not present when key_vals has data)
-            # if key_vals:
-            #     if key_cols == "None":
-            #         log_msg(
-            #             f"ERROR: key_cols {key_cols} does not exist.")
-            #         return
+        default_limit = 1000
+        max_limit = 10000
 
-            # 1 (to check both)
-            if key_cols == "None":  # when key_cols do not exist (key_vals may or may not be present)
-                log_msg(
-                    f"ERROR: key_cols {key_cols} does not exist.")
-                return
-
-            if key_vals == "None":  # when key_cols exist but key_vals does not
-                log_msg(
-                    f"ERROR: key_vals {key_vals} does not exist.")
-                return
-
-            default_limit = 1000
-            max_limit = 10000
-            if col_list == "None":  # 2
-                limit_val = int(default_limit)
-            else:  # 3
-                if key_vals == "None" and key_cols:
-                    if limit_val != 'None':
-                        limit_val = int(limit_val)
-                        if limit_val > 0:
-                            limit_val = min(limit_val, max_limit)
+        if col_list == "None":
+            limit_val = int(default_limit)
+        else:
+            if key_vals == "None" and key_cols:
+                if limit_val != "None":
+                    limit_val = int(limit_val)
+                    if limit_val > 0:
+                        limit_val = min(limit_val, max_limit)
                     else:
                         limit_val = int(default_limit)
 
-            where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
-            limit_str = getLimit(limit_val)
-            sqlstr = ("select " + col_list + " from "
-                      + src_db + "." + src_ds + "." + src_tbl
-                      + where_str + limit_str)
-            bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+        where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
+        limit_str = getLimit(limit_val)
+        sqlstr = "SELECT {} FROM {}.{}.{} {}{}".format(col_list, src_db, src_ds, src_tbl, where_str, limit_str)
+
+        bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+
+    elif crt_rep == "CSV_TO_BQ":
+        file_path = f"gs://{project_id}/{csv_path}{file_name}"
+        df = readfrombucket(spark, file_path, "csv")
+        print(schema_json)
+        csv_to_bq(df, schema_json, project_id, tgt_ds, tgt_tbl)
+
+    try:
+        pass  # Implementation logic here
+    except Exception as e:
+        err_str = "Exception in create_tbl: " + str(e)
+        throw_exception(err_str)
+
+def main():
+    log_msg("Starting main function")
+    # Implementation logic for initializing variables and running functions
 
             # Load CSV to BQ
         elif crt_rep.upper() == "CSV_TO_BQ":
