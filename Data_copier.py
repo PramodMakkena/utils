@@ -371,9 +371,8 @@ def create_tbl(
             log_msg(f"ERROR: Values for src_db/src_ds/src_tbl/csv_path is/are not given. Please update the CSV with appropriate values.")
             return
 
-        if key_vals:
-            if key_cols == "None":
-                log_msg(f"ERROR: key_cols {key_cols} does not exist.")
+        if key_cols and key_vals == "None":
+                log_msg(f"ERROR: key_vals {key_vals} does not exist when key_cols {key_cols} exist")
                 return
 
         default_limit = 1000
