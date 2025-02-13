@@ -463,6 +463,25 @@ def truncate_load(client: bigquery.Client, project_id: str, bq_dataset: str,
         log_msg("Exception in truncate_load: {}".format(e))
 
 
+def get_schema_from_mastertable(client: bigquery.Client, project_id: str, table_name: str):
+    query = f"""
+        SELECT schema_definition, primary_keys
+        FROM `{project_id}.data.mastertable`
+        WHERE tablename = '{table_name}'
+    """
+    schema = client.query(query)
+    result = schema.result()
+
+    schema_dict = {}
+    primary_key = []
+
+    for row in result:
+        schema_json = json.loads(row["schema_definition"])
+        primary_key = row["primary_keys"]
+        schema_dict.update(schema_json)
+
+    return schema_dict, primary_key
+
 def snapshot(client: bigquery.Client, project_id: str, table_col_list: str, bq_src_db: str, bq_src_dataset: str,
              bq_src_table: str,
              csv_path: str, file_name: str, bq_target_db: str, bq_target_dataset: str, bq_target_table: str,
@@ -478,7 +497,7 @@ def snapshot(client: bigquery.Client, project_id: str, table_col_list: str, bq_s
         sqlexecute_bq(client, ddl_temp_str)
 
         temp_tgt_tbl_nm = f"temp_{bq_target_table}"
-        sqlbkstr = "select * from `{}.{}.{}` {} {}".format(bq_target_db, bq_target_dataset, bq_target_table)
+        sqlbkstr = "select * from `{}.{}.{}`".format(bq_target_db, bq_target_dataset, bq_target_table)
         ddl_backup = "{} `{}.{}.{}` as ({});".format(ddl_create_str, bq_target_db, bq_target_dataset, temp_tgt_tbl_nm,
                                                        sqlbkstr)
         sqlexecute_bq(client, ddl_backup)
@@ -487,11 +506,11 @@ def snapshot(client: bigquery.Client, project_id: str, table_col_list: str, bq_s
         sqlexecute_bq(client, ddl_drop_tgt_table)
 
         # get table schema
-        schema = get_tbl_schema(client, project_id, bq_target_dataset, temp_tgt_tbl_nm)
-        existing_schema_map = {field.name: field.field_type for field in schema}
+        existing_schema_map, primary_key = get_schema_from_mastertable(client, project_id, temp_tgt_tbl_nm)
         final_schema = {}
+        primary_key_constraint = f", PRIMARY KEY({primary_key})" if primary_key else ""
 
-        # create final col list with col list being used as master list for columns
+        # create final col list with col list being used as file name list for columns
         for col in table_col_list.split(","):
             col = col.strip()
             if col in existing_schema_map:
@@ -502,8 +521,8 @@ def snapshot(client: bigquery.Client, project_id: str, table_col_list: str, bq_s
         col_definitions = ", ".join(f"{col} {dtype}" for col, dtype in final_schema.items())
 
         # create target table with dadatype from target table if already exist else default datatype as string for new columns
-        ddl_str_tgt = "create table if not exists `{}.{}.{}` ({})".format(
-            bq_target_db, bq_target_dataset, bq_target_table, col_definitions
+        ddl_str_tgt = "create table if not exists `{}.{}.{}` ({}) {}".format(
+            bq_target_db, bq_target_dataset, bq_target_table, col_definitions, primary_key_constraint
         )
         print(ddl_str_tgt)
         sqlexecute_bq(client, ddl_str_tgt)
