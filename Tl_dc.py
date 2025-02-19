@@ -163,3 +163,84 @@ elif load_type == "TL":
             log_msg(f"ERROR: Schema validation failed, data not written to BigQuery")
     else:
         log_msg(f"ERROR: Either target table details or file_name/csv_path details are missing in input file")
+
+
+elif crt_rep == "TL":
+            where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
+            limit_str = getLimit(limit_val)
+            sqlstr = "select {} from `{}.{}.{}`{}{}".format(
+                col_list, src_db, src_ds, src_tbl, where_str, limit_str
+            )
+            temp_tbl = "{}_temp_{}".format(tgt_tbl, dttm)
+
+            df = spark.read.option("header", "true").option("multiline", "true").format("csv").load(f"gs://{file_name}")
+            
+            table_col_list = df.columns
+            ddl_create_str = "create or replace table "
+            sqlbkstr = "select * from `{}.{}.{}`".format(tgt_db, tgt_ds, tgt_tbl)
+            ddl_backup = "{} `{}.{}.{}` as ({});".format(ddl_create_str, tgt_db, tgt_ds,
+                                                         temp_tbl,
+                                                         sqlbkstr)
+            bq_client.query( ddl_backup)
+
+            ddl_drop_tgt_table = "drop table " + tgt_db + "." + tgt_ds + "." + tgt_tbl
+            bq_client.query( ddl_drop_tgt_table)
+
+            # get table schema
+            existing_schema_map, primary_key = get_schema_from_mastertable(client, project_id, temp_tgt_tbl_nm)
+            final_schema = {}
+            primary_key_constraint = f", PRIMARY KEY({primary_key})" if primary_key else ""
+
+            # create final col list with col list being used as file name list for columns
+            for col in table_col_list:
+                col = col.strip()
+                if col in existing_schema_map:
+                    final_schema[col] = existing_schema_map[col]
+                else:
+                    final_schema[col] = "STRING"
+
+            col_definitions = ", ".join(f"{col} {dtype}" for col, dtype in final_schema.items())
+
+            # create target table with datatype from target table if already exist else default datatype as string for
+            # new columns
+            ddl_str_tgt = "create table if not exists `{}.{}.{}` ({}) {}".format(
+                tgt_db, tgt_ds, tgt_tbl, col_definitions, primary_key_constraint
+            )
+            print(ddl_str_tgt)
+            bq_client.query( ddl_str_tgt)
+
+            # select temp target table
+            sqlstrtgt = "SELECT {} FROM `{}.{}.{}`".format(
+                table_col_list, tgt_db, tgt_ds, temp_tbl)
+
+            # insert into target table from temp target table
+            ddl_tgt_str = "INSERT INTO `{}.{}.{}` ({}) {}".format(
+                tgt_db, tgt_ds, tgt_tbl, table_col_list, sqlstrtgt)
+            bq_client.query( ddl_tgt_str)
+
+            # Drop temp target table
+            ddl_drop_tgt_table = "drop table " + tgt_db + "." + tgt_ds + "." + temp_tbl
+            bq_client.query( ddl_drop_tgt_table)
+
+
+
+
+add below function also in data copier:
+def get_schema_from_mastertable(client: bigquery.Client, project_id: str, table_name: str):
+    query = f"""
+        SELECT schema_definition, primary_keys
+        FROM `{project_id}.data.mastertable`
+        WHERE tablename = '{table_name}'
+    """
+    schema = client.query(query)
+    result = schema.result()
+
+    schema_dict = {}
+    primary_key = []
+
+    for row in result:
+        schema_json = json.loads(row["schema_definition"])
+        primary_key = row["primary_keys"]
+        schema_dict.update(schema_json)
+
+    return schema_dict, primary_key
