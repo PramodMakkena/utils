@@ -223,6 +223,44 @@ elif crt_rep == "TL":
             bq_client.query( ddl_drop_tgt_table)
 
 
+elif load_type == "TL":
+    if tgt_db != 'None' and tgt_ds != 'None' and tgt_tbl != 'None' and file_name != 'None':
+        file_path = "gs://{}{}{}".format(project_id, csv_path, file_name)
+        df = readfrombucket(spark, file_path, "csv")
+        csv_col_list = df.columns
+        master_schema_dict = {}
+        valid_run = 0
+        schema_tracker_select_query = f"""
+        Select schema_definition from `{project_id}.data.master_table`
+        where table_name = '{tgt_tbl}'
+        """
+        result = sqlexecute_bq(bq_client, schema_tracker_select_query)
+        for row in result:
+            schema_definition = row.schema_definition
+
+            if str(schema_definition) != 'None':
+                master_schema_dict = ast.literal_eval(schema_definition)
+            else:
+                log_msg("ERROR: Either schema_definition is missing in master table OR table entry not present inside master table")
+                valid_run = 1
+
+        if valid_run != 1:
+            csv_data_type_list = []
+            for key in csv_col_list:
+                if key in master_schema_dict:
+                    csv_data_type_list.append(master_schema_dict.get(key))
+                else:
+                    log_msg(f"ERROR: column {key} not present in schema_definition inside master table")
+
+            schema = str(dict(zip(csv_col_list, csv_data_type_list)))
+            df1 = cast_df_fields(df, schema)
+            prj_id = f"{project_id}"
+            bq_dataset = f"{tgt_ds}"
+            bq_table = f"{tgt_tbl}"
+            writetablebq(df1, prj_id, bq_dataset, bq_table, "overwrite")
+    else:
+        log_msg("ERROR: Either target table details or file_name/csv_path details is/are missing in input file")
+
 
 
 add below function also in data copier:
