@@ -114,13 +114,6 @@ def readCSV(spark):
 
                 # Print/log for debugging
                 print(f"dc_id = {dc_id}")
-                print(f"src_db = {src_db}")
-                print(f"src_ds = {src_ds}")
-                print(f"src_tbl= {src_tbl}")
-                print(f"col_list= {col_list}")
-                print(f"key_cols= {key_cols}")
-                print(f"key_vals= {key_vals}")
-                print(f"csv_path= {csv_path}")
 
                 # If we reach here, we can proceed
                 try:
@@ -253,174 +246,144 @@ def getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, k
         err_str = "Exception in getWhereCond: " + str(e)
         throw_exception(err_str)
 
-
-def getLimit(limit_val):
+def getLimit(limit_val, default = False):
     try:
-        print("Inside getLimit")
-        print(limit_val)
-        if limit_val != 'None':
-            limit_str = " limit " + str(limit_val)
+        if limit_val == 'None':
+            limit_val = min(int(limit_val), 10000) if default else int(limit_val)
         else:
-            limit_str = ""
-        print(limit_str)
-        return limit_str
+            limit_val = 1000 if default else None
+        return f"Limit {limit_val}" if limit_val is not None else None
     except Exception as e:
         err_str = "Exception in getLimit: " + str(e)
         throw_exception(err_str)
 
-
-def insertTbl(tgt_db, tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, where_str, limit_str):
+def get_schema_dict(bq_client, lumi_id, lumi_ds, tgt_tbl):
     try:
-        print("inside insertTbl")
-        ins_str = (
-                "insert into "
-                + tgt_db
-                + "."
-                + tgt_ds
-                + "."
-                + tgt_tbl
-                + " select "
-                + col_list
-                + " from "
-                + src_db
-                + "."
-                + src_ds
-                + "."
-                + src_tbl
-                + where_str
-                + limit_str
-        )
-        print(ins_str)
-        ins_res = sqlexecute_bq(bq_client, ins_str)
+        col_nm_str = ""
+        data_type_str = ""
+
+        schema_ddl = f"""select string_agg(column_name) as col_nm_str, 
+                                string_agg(data_type) as data_type_str from(
+                        select column_name, data_type, ordinal_position 
+                        from `{lumi_id}.{lumi_ds}.INFORMATION_SCHEMA.COLUMNS`
+                        where table_name = '{tgt_tbl}' 
+                        order by ordinal_position)"""
+
+        res = sqlexecute_bq(bq_client, schema_ddl)
+
+        for row in res:
+            if str(row.col_nm_str) != 'None':
+                col_nm_str = row.col_nm_str
+                data_type_str = row.data_type_str
+            else:
+                log_msg(f"ERROR: Table does not exist in the project space. Please check the table name provided")
+                valid_run = 0
+
+        if valid_run != 0:
+            col_nm_list = col_nm_str.split(",")
+            data_type_list = data_type_str.split(",")
+            schema_definition = json.dumps(dict(zip(col_nm_list, data_type_list)))
+            return schema_definition
+
     except Exception as e:
-        err_str = "Exception in insertTbl: " + str(e)
+        err_str = "Exception in getting schema dictionary: " + str(e)
         throw_exception(err_str)
-
-
-def deleteTbl(tgt_db, tgt_ds, tgt_tbl, where_str):
-    try:
-        print("inside deleteTbl")
-        del_str = "delete from " + tgt_db + "." + tgt_ds + "." + tgt_tbl + where_str
-        print(del_str)
-        del_res = sqlexecute_bq(bq_client, del_str)
-    except Exception as e:
-        err_str = "Exception in deleteTbl: " + str(e)
-        throw_exception(err_str)
-
 
 def create_tbl(
-        spark,
-        crt_rep,
-        tgt_db,
-        tgt_ds,
-        tgt_tbl,
-        src_db,
-        src_ds,
-        src_tbl,
-        col_list,
-        key_cols,
-        key_vals,
-        csv_path,
-        dttm,
-        limit_val,
-        file_name,
-        schema_json
+    spark, load_type, tgt_db, tgt_ds, tgt_tbl, csv_path, file_name, schema_json
 ):
-    log_msg("------------------ Creating tables------------------")
     try:
-        # If file_name is empty or 'none', override with default naming
-        file_name = "{}_{}.csv".format(src_tbl, dttm) if (not file_name or file_name.lower() == "none") else file_name
+        file_name = "{}_Ch.csv".format(tgt_tbl) if (not file_name or file_name.lower() == "none") else file_name
+        
+        if load_type.upper() == "TL":
+            if all(var != "None" for var in [tgt_db, tgt_ds, tgt_tbl, file_name, csv_path]):
+                file_path = "gs://{}/{}".format(csv_path, file_name)
+                df = read_from_bucket(spark, file_path, "csv")
+                csv_col_list = [x.lower() for x in df.columns]
+                master_schema_dict = {}
+                tgt_tbl_col_list = []
+                tgt_tbl_chk_flag = 0
+                valid_run = 1
 
-        # Snapshot
-        if crt_rep.upper() == "SNAPSHOT":
-            where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
-            limit_str = getLimit(limit_val)
-            snapshot(
-                bq_client,
-                project_id,
-                col_list,
-                src_db,
-                src_ds,
-                src_tbl,
-                csv_path,
-                file_name,
-                tgt_db,
-                tgt_ds,
-                tgt_tbl,
-                where_str,
-                limit_str
-            )
+                schema_tracker_select_query = f"""
+                    SELECT schema_definition 
+                    FROM `{project_id}.data.master_table` 
+                    WHERE table_name = '{tgt_tbl}'
+                """
+                result = sql_execute_bq(bq_client, schema_tracker_select_query)
+                schema_definition = None
 
-        # Truncate & Load
-        elif crt_rep == "TL":
-            where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
-            limit_str = getLimit(limit_val)
-            sqlstr = "select {} from `{}.{}.{}`{}{}".format(
-                col_list, src_db, src_ds, src_tbl, where_str, limit_str
-            )
-            temp_tbl = "{}_temp_{}".format(tgt_tbl, dttm)
+                for row in result:
+                    schema_definition = row.schema_definition
 
-            bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
-            df = readfrombucket(spark, f"gs://{project_id}{csv_path}{file_name}", "csv")
-            writetablebq(df, project_id, tgt_ds, temp_tbl, "overwrite")
-            truncate_load(bq_client, tgt_db, tgt_ds, tgt_tbl, temp_tbl)
+                if schema_definition and schema_definition.lower() != "none":
+                    master_schema_dict = ast.literal_eval(schema_definition.lower())
+                else:
+                    log_msg(f"ERROR: Either schema_definition is missing in master table OR table entry not present inside master table")
+                    valid_run = 0
 
+                if valid_run != 0:
+                    ddl_col_str = f"""
+                        SELECT STRING_AGG(column_name) as col_str 
+                        FROM `{project_id}.{tgt_ds}.INFORMATION_SCHEMA.COLUMNS` 
+                        WHERE table_name = '{tgt_tbl}'
+                    """
+                    res = sql_execute_bq(bq_client, ddl_col_str)
 
-    elif crt_rep == "BQ_TO_CSV":
-        if (src_db == "None" or src_ds == "None" or src_tbl == "None" or csv_path == "None"):
-            log_msg(f"ERROR: Values for src_db/src_ds/src_tbl/csv_path is/are not given. Please update the CSV with appropriate values.")
-            return
+                    for row in res:
+                        if str(row.col_str) != "None":
+                            tgt_tbl_col_list = row.col_str.split(",")
+                            tgt_tbl_chk_flag = 1
+                            log_msg(f"INFO: Target Table `{project_id}.{tgt_ds}.{tgt_tbl}` already exists")
+                        else:
+                            log_msg(f"INFO: Target Table `{project_id}.{tgt_ds}.{tgt_tbl}` doesn’t exist, will be newly created")
 
-        if key_cols and key_vals == "None":
-                log_msg(f"ERROR: key_vals {key_vals} does not exist when key_cols {key_cols} exist")
-                return
+                col_chk_list = list(set(tgt_tbl_col_list) - set(csv_col_list))
+                col_chk_list_t = list(set(csv_col_list) - set(tgt_tbl_col_list))
 
-        default_limit = 1000
-        max_limit = 10000
+                if len(col_chk_list) > 0 or len(col_chk_list_t) > 0:
+                    log_msg(f"ERROR: Target table schema is not matching with data.csv file")
 
-        if col_list == "None":
-            limit_val = int(default_limit)
-        else:
-            if key_vals == "None" and key_cols:
-                if limit_val != "None":
-                    limit_val = int(limit_val)
-                    if limit_val > 0:
-                        limit_val = min(limit_val, max_limit)
+                if valid_run != 0:
+                    csv_data_type_list = []
+                    for key in csv_col_list:
+                        if key in master_schema_dict:
+                            csv_data_type_list.append(master_schema_dict.get(key))
+                        else:
+                            log_msg(f"ERROR: column {key} not present in schema definition inside master table!")
+                            return
+                    schema_dict = json.dumps(dict(zip(csv_col_list, csv_data_type_list)))
+                    schema_fields = []
+                    for col_name, col_type in schema_dict.items():
+                        schema_fields.append(bigquery.SchemaField(col_name, col_type))
+                    load_job_config = bigquery.LoadJobConfig(schema=schema_fields,source_format=bigquery.SourceFormat.CSV,write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,skip_leading_rows=1)
+                    dest_tbl_id = f"{project_id}.{dest_ds}.{tgt_tbl}"
+                    load_job = bq_client.load_table_from_uri(file_path, dest_tbl_id, job_config=load_job_config)
+                    load_job.result()
+                    log_msg(f"INFO: Loaded {file_path} into {dest_tbl_id} using master schema.")
+                else:
+                    log_msg("ERROR: Either target table details or file_name/csv_path details is/are missing in input file")
+
+        elif load_type.upper() == "BQ_TO_CSV":
+            if all(var != "None" for var in [src_db, src_ds, src_tbl, csv_path]):
+                chk_flag = 0
+                where_str = ""
+                if key_vals != "None":
+                    if key_cols != "None":
+                        where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
                     else:
-                        limit_val = int(default_limit)
-
-        where_str = getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, key_vals)
-        limit_str = getLimit(limit_val)
-        sqlstr = "SELECT {} FROM {}.{}.{} {}{}".format(col_list, src_db, src_ds, src_tbl, where_str, limit_str)
-
-        bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
-
-    elif crt_rep == "CSV_TO_BQ":
-        file_path = f"gs://{project_id}/{csv_path}{file_name}"
-        df = readfrombucket(spark, file_path, "csv")
-        print(schema_json)
-        csv_to_bq(df, schema_json, project_id, tgt_ds, tgt_tbl)
-
-    try:
-        pass  # Implementation logic here
+                        chk_flag = 1
+                        log_msg("ERROR: key_vals is present but key_cols is missing in input file")
+                        return
+                if chk_flag != 1:
+                    limit_str = getLimit(limit_val, True)
+                    sqlstr = "SELECT " + col_list + " FROM " + src_db + "." + src_ds + "." + src_tbl + where_str + limit_str
+                    bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
+            else:
+                log_msg(f"ERROR: Values for src_db/src_ds/src_tbl/csv_path is/are not given. Please update the CSV with appropriate values for this dc_id")
     except Exception as e:
         err_str = "Exception in create_tbl: " + str(e)
         throw_exception(err_str)
-
-def main():
-    log_msg("Starting main function")
-    # Implementation logic for initializing variables and running functions
-
-            # Load CSV to BQ
-        elif crt_rep.upper() == "CSV_TO_BQ":
-            file_path = f"gs://{project_id}/{csv_path}{file_name}"
-            df = readfrombucket(spark, file_path, "csv")
-            csv_to_bq(df, schema_json, project_id, tgt_ds, tgt_tbl)
-
-    except Exception as e:
-        err_str = "Exception in create_tbl: " + str(e)
-        throw_exception(err_str)
-
 
 def main():
     log_msg("------------------ Starting main function ------------------")
