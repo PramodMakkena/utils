@@ -136,7 +136,7 @@ def readCSV(spark):
                         schema_json
                     )
                 except Exception as e:
-                    # This ensures that if something fails inside create_tbl, 
+                    # This ensures that if something fails inside create_tbl,
                     # we only skip this iteration and continue with next row.
                     log_msg(f"ERROR while processing dc_id: {dc_id}. Skipping this record. Error details: {e}")
                     continue
@@ -246,7 +246,8 @@ def getWhereCond(tgt_ds, tgt_tbl, src_db, src_ds, src_tbl, col_list, key_cols, k
         err_str = "Exception in getWhereCond: " + str(e)
         throw_exception(err_str)
 
-def getLimit(limit_val, default = False):
+
+def getLimit(limit_val, default=False):
     try:
         if limit_val == 'None':
             limit_val = min(int(limit_val), 10000) if default else int(limit_val)
@@ -256,6 +257,7 @@ def getLimit(limit_val, default = False):
     except Exception as e:
         err_str = "Exception in getLimit: " + str(e)
         throw_exception(err_str)
+
 
 def get_schema_dict(bq_client, lumi_id, lumi_ds, tgt_tbl):
     try:
@@ -289,12 +291,13 @@ def get_schema_dict(bq_client, lumi_id, lumi_ds, tgt_tbl):
         err_str = "Exception in getting schema dictionary: " + str(e)
         throw_exception(err_str)
 
+
 def create_tbl(
-    spark, load_type, tgt_db, tgt_ds, tgt_tbl, csv_path, file_name, schema_json
+        spark, load_type, tgt_db, tgt_ds, tgt_tbl, csv_path, file_name, schema_json
 ):
     try:
         file_name = "{}_Ch.csv".format(tgt_tbl) if (not file_name or file_name.lower() == "none") else file_name
-        
+
         if load_type.upper() == "TL":
             if all(var != "None" for var in [tgt_db, tgt_ds, tgt_tbl, file_name, csv_path]):
                 file_path = "gs://{}/{}".format(csv_path, file_name)
@@ -305,21 +308,22 @@ def create_tbl(
                 tgt_tbl_chk_flag = 0
                 valid_run = 1
 
-                schema_tracker_select_query = f"""
-                    SELECT schema_definition 
-                    FROM `{project_id}.data.master_table` 
-                    WHERE table_name = '{tgt_tbl}'
-                """
-                result = sql_execute_bq(bq_client, schema_tracker_select_query)
-                schema_definition = None
+                # schema_tracker_select_query = f"""
+                #     SELECT schema_definition
+                #     FROM `{project_id}.data.master_table`
+                #     WHERE table_name = '{tgt_tbl}'
+                # """
+                # result = sql_execute_bq(bq_client, schema_tracker_select_query)
+                # schema_definition = None
 
-                for row in result:
-                    schema_definition = row.schema_definition
+                # for row in result:
+                schema_definition = get_schema_dict(bq_client, project_id, tgt_ds, tgt_tbl)
 
                 if schema_definition and schema_definition.lower() != "none":
                     master_schema_dict = ast.literal_eval(schema_definition.lower())
                 else:
-                    log_msg(f"ERROR: Either schema_definition is missing in master table OR table entry not present inside master table")
+                    log_msg(
+                        f"ERROR: Either schema_definition is missing in master table OR table entry not present inside master table")
                     valid_run = 0
 
                 if valid_run != 0:
@@ -336,7 +340,8 @@ def create_tbl(
                             tgt_tbl_chk_flag = 1
                             log_msg(f"INFO: Target Table `{project_id}.{tgt_ds}.{tgt_tbl}` already exists")
                         else:
-                            log_msg(f"INFO: Target Table `{project_id}.{tgt_ds}.{tgt_tbl}` doesn’t exist, will be newly created")
+                            log_msg(
+                                f"INFO: Target Table `{project_id}.{tgt_ds}.{tgt_tbl}` doesn’t exist, will be newly created")
 
                 col_chk_list = list(set(tgt_tbl_col_list) - set(csv_col_list))
                 col_chk_list_t = list(set(csv_col_list) - set(tgt_tbl_col_list))
@@ -356,13 +361,17 @@ def create_tbl(
                     schema_fields = []
                     for col_name, col_type in schema_dict.items():
                         schema_fields.append(bigquery.SchemaField(col_name, col_type))
-                    load_job_config = bigquery.LoadJobConfig(schema=schema_fields,source_format=bigquery.SourceFormat.CSV,write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,skip_leading_rows=1)
+                    load_job_config = bigquery.LoadJobConfig(schema=schema_fields,
+                                                             source_format=bigquery.SourceFormat.CSV,
+                                                             write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+                                                             skip_leading_rows=1)
                     dest_tbl_id = f"{project_id}.{dest_ds}.{tgt_tbl}"
                     load_job = bq_client.load_table_from_uri(file_path, dest_tbl_id, job_config=load_job_config)
                     load_job.result()
                     log_msg(f"INFO: Loaded {file_path} into {dest_tbl_id} using master schema.")
                 else:
-                    log_msg("ERROR: Either target table details or file_name/csv_path details is/are missing in input file")
+                    log_msg(
+                        "ERROR: Either target table details or file_name/csv_path details is/are missing in input file")
 
         elif load_type.upper() == "BQ_TO_CSV":
             if all(var != "None" for var in [src_db, src_ds, src_tbl, csv_path]):
@@ -380,10 +389,12 @@ def create_tbl(
                     sqlstr = "SELECT " + col_list + " FROM " + src_db + "." + src_ds + "." + src_tbl + where_str + limit_str
                     bq_to_csv(bq_client, project_id, csv_path, file_name, sqlstr)
             else:
-                log_msg(f"ERROR: Values for src_db/src_ds/src_tbl/csv_path is/are not given. Please update the CSV with appropriate values for this dc_id")
+                log_msg(
+                    f"ERROR: Values for src_db/src_ds/src_tbl/csv_path is/are not given. Please update the CSV with appropriate values for this dc_id")
     except Exception as e:
         err_str = "Exception in create_tbl: " + str(e)
         throw_exception(err_str)
+
 
 def main():
     log_msg("------------------ Starting main function ------------------")
