@@ -359,6 +359,20 @@ def create_tbl(
                             return
                     schema_dict = json.dumps(dict(zip(csv_col_list, csv_data_type_list)))
                     schema_fields = []
+
+                    for col_name, col_type in schema_dict.items():
+                        if col_type == "DATETIME" or col_type == "TIMESTAMP":
+                            try:
+                                df[col_name] = pd.to_datetime(df[col_name]).dt.strftime('%Y-%m-%d %I:%M:%S %p')
+                            except Exception as e:
+                                log_msg(f"ERROR: Could not convert datetime column {col_name}: {e}")
+                                return
+
+
+                    new_file_path = "gs://{}/new_{}".format(csv_path, file_name)
+                    df.to_csv(new_file_path.replace("gs://", ""), index=False, storage_options={"token": "cloud"})
+
+
                     for col_name, col_type in schema_dict.items():
                         schema_fields.append(bigquery.SchemaField(col_name, col_type))
                     load_job_config = bigquery.LoadJobConfig(schema=schema_fields,
@@ -366,9 +380,9 @@ def create_tbl(
                                                              write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
                                                              skip_leading_rows=1)
                     dest_tbl_id = f"{project_id}.{dest_ds}.{tgt_tbl}"
-                    load_job = bq_client.load_table_from_uri(file_path, dest_tbl_id, job_config=load_job_config)
+                    load_job = bq_client.load_table_from_uri(new_file_path, dest_tbl_id, job_config=load_job_config)
                     load_job.result()
-                    log_msg(f"INFO: Loaded {file_path} into {dest_tbl_id} using master schema.")
+                    log_msg(f"INFO: Loaded {new_file_path} into {dest_tbl_id} using master schema.")
                 else:
                     log_msg(
                         "ERROR: Either target table details or file_name/csv_path details is/are missing in input file")
