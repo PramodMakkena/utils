@@ -90,134 +90,133 @@ with DAG(
     },
 ) as dag:
     def generate_list(class_id, run_id, **context):
-    gcs_file_system = gcsfs.GCSFileSystem(project=project_id)
-    file_path = f"gs://{project_id}/gfcc_dam_output/SIT_CONFIG/{class_id}_{run_id}.json"
-    read_file = gcs_file_system.open(file_path)
+        gcs_file_system = gcsfs.GCSFileSystem(project=project_id)
+        file_path4 = f"gs://{project_id}/gfcc_dam_output/SIT_CONFIG/{class_id}_{run_id}.json"
+        read_file = gcs_file_system.open(file_path)
+        config = json.load(read_file)
+        print('config:', config)
+        tasks = config["TASK_CONFIG"]
+        task_id = tasks["TASK"]
+        result = []
+        task_list = []
 
-    config = json.load(read_file)
-    print('config:', config)
-    tasks = config["TASK_CONFIG"]
-    task_id = tasks["TASK"]
-    result = []
-    task_list = []
+        for task in task_id:
+            print("TASK_ID:", task["task_id"])
 
-    for task in task_id:
-        print("TASK_ID:", task["task_id"])
+            args_dict_extraction = {
+                "curr_dt": str(cur_dt),
+                "sprint": "{{ params.sprint }}",
+                "project_id": project_id,
+                "task_block": task["task_id"],
+                "test_no": str(task["test_number"]),
+                "classid": class_id,
+                "runid": run_id,
+                "global_config_file_name": global_config_file_name
+            }
 
-        args_dict_extraction = {
-            "curr_dt": str(cur_dt),
-            "sprint": "{{ params.sprint }}",
-            "project_id": project_id,
-            "task_block": task["task_id"],
-            "test_no": str(task["test_number"]),
-            "classid": class_id,
-            "runid": run_id,
-            "global_config_file_name": global_config_file_name
-        }
-
-        block_name = task["task_id"]
-        PYSPARK_JOB = {
-            "main_python_file_uri": execution_file_path,
-            "python_file_uris": [
+            block_name = task["task_id"]
+            PYSPARK_JOB = {
+                "main_python_file_uri": execution_file_path,
+                "python_file_uris": [
                 dam_utility_file_path,
                 automation_utility_path,
                 global_config_file_path,
                 consolidation_automation_utility_path
-            ],
-            "args": [str(args_dict_extraction)]
-        }
+                ],
+                "args": [str(args_dict_extraction)]
+            }
 
-        parameter_op = {
-            "cluster_name": cluster_config["cluster_name"],
-            "pyspark_job": PYSPARK_JOB
-        }
+            parameter_op = {
+                "cluster_name": cluster_config["cluster_name"],
+                    "pyspark_job": PYSPARK_JOB
+            }
 
-        print('PARAMETER_OP:', parameter_op)
-        result.append(parameter_op)
-        task_list.append(block_name)
+            print('PARAMETER_OP:', parameter_op)
+            result.append(parameter_op)
+            task_list.append(block_name)
 
-    print('task_list:', task_list)
-    index_list = list(range(len(task_list)))
-    print('index_list:', index_list)
+        print('task_list:', task_list)
+        index_list = list(range(len(task_list)))
+        print('index_list:', index_list)
 
-    context['ti'].xcom_push(key="task_list_indices", value=index_list)
-    return result
+        context['ti'].xcom_push(key="task_list_indices", value=index_list)
+        return result
     
     # This function validates the user before proceeding
-validate_run = PythonOperator(
-    task_id="validate_run",
-    python_callable=validate_run_func,
-    retries=0,
-    provide_context=True,
-    op_kwargs={
-        "project_id": project_id,
-        "dag_id": dag_config["dag_id"],
-        "passed_dag_id": "{{ dag_run.conf.get('passed_dag_id') }}"
-    }
-)
+    validate_run = PythonOperator(
+        task_id="validate_run",
+        python_callable=validate_run_func,
+        retries=0,
+        provide_context=True,
+        op_kwargs={
+            "project_id": project_id,
+            "dag_id": dag_config["dag_id"],
+            "passed_dag_id": "{{ dag_run.conf.get('passed_dag_id') }}"
+        }
+    )
 
-create_cluster = DataprocCreateClusterOperator(
-    task_id="Create_cluster",
-    cluster_name=cluster_config["cluster_name"],
-    idle_delete_ttl=6000
-)
+    create_cluster = DataprocCreateClusterOperator(
+        task_id="Create_cluster",
+        cluster_name=cluster_config["cluster_name"],
+        idle_delete_ttl=6000
+    )
 
-create_json_file = DataprocSubmitJobOperator(
-    task_id='Get_testcases_to_execute',
-    pyspark_job=PYSPARK_JOB1,
-    retries=0
-)
+    create_json_file = DataprocSubmitJobOperator(
+        task_id='Get_testcases_to_execute',
+        pyspark_job=PYSPARK_JOB1,
+        retries=0
+    )
 
-# delay_trigger_task = PythonOperator(
-#     task_id='delay_trigger_task',
-#     python_callable=lambda: time.sleep(100)
-# )
+    # delay_trigger_task = PythonOperator(
+    #     task_id='delay_trigger_task',
+    #     python_callable=lambda: time.sleep(100)
+    # )
 
-generate_list_task = PythonOperator(
-    task_id='Create_dynamic_testing_tasks',
-    python_callable=generate_list,
-    provide_context=True,
-    op_kwargs={"class_id": "{{params.class_id}}", "run_id": "{{run_id}}"},
-    dag=dag,
-    retries=0
-)
+    generate_list_task = PythonOperator(
+        task_id='Create_dynamic_testing_tasks',
+        python_callable=generate_list,
+        provide_context=True,
+        op_kwargs={"class_id": "{{params.class_id}}", "run_id": "{{run_id}}"},
+        dag=dag,
+        retries=0
+    )
 
-submit_job = DataprocSubmitJobOperator.partial(
-    task_id='Execute_testcases'
-).expand_kwargs(
-    XComArg(generate_list_task)
-)
+    submit_job = DataprocSubmitJobOperator.partial(
+        task_id='Execute_testcases'
+    ).expand_kwargs(
+        XComArg(generate_list_task)
+    )
 
-task_list = [
-    {
-        "task_name": "validate_run",
-        "dynamic": False,
-        "task_index": []
-    },
-    {
-        "task_name": "Get_testcases_to_execute",
-        "dynamic": False,
-        "task_index": []
-    },
-    {
-        "task_name": "Create_dynamic_testing_tasks",
-        "dynamic": False,
-        "task_index": []
-    },
-    {
-        "task_name": "Execute_testcases",
-        "dynamic": True,
-        "task_index": "{{ti.xcom_pull(task_ids='Create_dynamic_testing_tasks', key='task_list_indices')}}"
-    }
-]
+    task_list = [
+        {
+            "task_name": "validate_run",
+            "dynamic": False,
+            "task_index": []
+        },
+        {
+            "task_name": "Get_testcases_to_execute",
+            "dynamic": False,
+            "task_index": []
+        },
+        {
+            "task_name": "Create_dynamic_testing_tasks",
+            "dynamic": False,
+            "task_index": []
+        },
+        {
+            "task_name": "Execute_testcases",
+            "dynamic": True,
+            "task_index": "{{ti.xcom_pull(task_ids='Create_dynamic_testing_tasks', key='task_list_indices')}}"
+        }
+    ]
 
-notifications_branching = PythonOperator(
-    task_id='notifications_branching',
-    python_callable=dynamicTaskSendNotificationAndReturnBranch,
-    provide_context=True,
-    trigger_rule='all_done',
-    email_on_failure=True,
-    op_kwargs={'task_list': task_list, 'destination_emails': destination_emails, 'dynamic_task': True}
-)
+    notifications_branching = PythonOperator(
+        task_id='notifications_branching',
+        python_callable=dynamicTaskSendNotificationAndReturnBranch,
+        provide_context=True,
+        trigger_rule='all_done',
+        email_on_failure=True,
+        op_kwargs={'task_list': task_list, 'destination_emails': destination_emails, 'dynamic_task': True}
+    )
 
 validate_run >> create_cluster >> create_json_file >> generate_list_task >> submit_job >> notifications_branching
