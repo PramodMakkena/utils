@@ -114,3 +114,37 @@ def getOnJoins(bq_client, project_id, rfc_ds, rfc_tbl, rfc_key):
         return where_str
     except Exception as e:
         throw_exception(f"Exception in getOnJoins: " + str(e))
+
+def create_tbl(project_id, table_prefix, load_type, tgt_ds, tgt_tbl, bq_tbl, 
+               src_db, src_ds, src_tbl, col_list, where_cond, csv_path, dttm, 
+               limit_val, file_name, csv_path, schema_changed, csv_col_chk_str, 
+               rfc_ds, rfc_tbl, rfc_key, rfc_schema_json):
+    log_msg("Starting create_tbl logic...")
+    try:
+        file_name = "{}.csv".format(str(bq_tbl), dttm) if not file_name or file_name.lower() == "none" else file_name
+        schema_changed = False
+        csv_col_chk_str = ""
+
+        if load_type.upper() == "SNAPSHOT":
+            if all(var != "None" for var in [tgt_ds, tgt_tbl, file_name, csv_path, schema_changed]):
+                return snapshot_table(project_id, tgt_ds, tgt_tbl, csv_path, file_name, schema_changed, csv_col_chk_str)
+            else:
+                return fail_fn("ERROR: Either target table details or file_name/csv_path details is/are missing in input file", schema_changed, csv_col_chk_str)
+
+        elif load_type.upper() == "LT":
+            if all(var != "None" for var in [tgt_ds, tgt_tbl, file_name, csv_path]):
+                return lt_table(project_id, tgt_ds, tgt_tbl, file_name, csv_path, schema_changed, csv_col_chk_str)
+            else:
+                return fail_fn("ERROR: Either target table details or file_name/csv_path details is/are missing in input file", schema_changed, csv_col_chk_str)
+
+        elif load_type.upper() == "BQ_TO_CSV":
+            if all(var != "None" for var in [src_db, src_ds, src_tbl, col_list, where_cond, limit_val, 
+                                             file_name, csv_path]):
+                return bq_to_csv_table(project_id, src_db, src_ds, src_tbl, file_name, csv_path, col_list, 
+                                       where_cond, limit_val, schema_changed, csv_col_chk_str, 
+                                       rfc_ds, rfc_tbl, rfc_key, rfc_schema_json)
+            else:
+                return fail_fn("ERROR: Either source table details or columns or csv_path details is/are missing in input file", schema_changed, csv_col_chk_str)
+
+    except Exception as e:
+        throw_exception("Exception in create_tbl: " + str(e))
